@@ -158,7 +158,7 @@ interface InstagramMessage {
 
 interface InstagramAttachment {
   type: string;
-  payload: { url?: string };
+  payload: { url?: string; media_url?: string; media_id?: string; title?: string };
 }
 
 // =============================================================================
@@ -1203,7 +1203,8 @@ function extractInstagramContent(message: InstagramMessage): MessageContent {
   // Attachment message
   if (message.attachments?.[0]) {
     const attachment = message.attachments[0];
-    const url = attachment.payload?.url || "";
+    // ig_post uses payload.media_url; share/others use payload.url
+    const url = attachment.payload?.media_url || attachment.payload?.url || "";
 
     switch (attachment.type) {
       case "image":
@@ -1226,8 +1227,9 @@ function extractInstagramContent(message: InstagramMessage): MessageContent {
           mediaUrl: url,
           mimeType: "audio/mp4",
         };
-      case "share":
-        // Instagram share (post, reel, story)
+      case "ig_post": // New in Oct 2025 — replaces "share" from Feb 1, 2026
+      case "share":   // Deprecated Feb 1, 2026 — keep for backward compat
+        // Instagram shared post/reel/story
         return {
           type: "text",
           text: message.text || `[Compartilhamento: ${url}]`,
