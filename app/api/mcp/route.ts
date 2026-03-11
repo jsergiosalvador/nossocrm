@@ -83,15 +83,30 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const auth = await authMcp(request);
-  if (!auth.ok) {
-    // JSON-RPC friendly error envelope (MCP clients will still see 401 if they surface it)
-    return NextResponse.json({ jsonrpc: '2.0', id: null, error: { code: -32001, message: auth.body.error, data: auth.body } }, { status: auth.status });
-  }
-
   const body = (await request.json().catch(() => null)) as JsonRpcRequest | null;
   if (!body || body.jsonrpc !== '2.0' || typeof body.method !== 'string') {
     return NextResponse.json(jsonRpcError(null, -32600, 'Invalid Request'), { status: 400 });
+  }
+
+  // initialize and notifications/initialized are public — MCP clients probe without auth
+  if (body.method === 'initialize') {
+    return NextResponse.json(
+      jsonRpcResult(body.id, {
+        protocolVersion: '2025-11-25',
+        serverInfo: { name: 'crmia-next-mcp', version: '0.1.0' },
+        capabilities: { tools: { listChanged: false } },
+      })
+    );
+  }
+
+  if (body.method === 'notifications/initialized') {
+    return new NextResponse(null, { status: 204 });
+  }
+
+  // All other methods require authentication
+  const auth = await authMcp(request);
+  if (!auth.ok) {
+    return NextResponse.json({ jsonrpc: '2.0', id: body.id ?? null, error: { code: -32001, message: auth.body.error, data: auth.body } }, { status: auth.status });
   }
 
   const userId = await resolveApiKeyOwnerUserId({ apiKeyId: auth.apiKeyId, organizationId: auth.organizationId });
@@ -107,22 +122,6 @@ export async function POST(request: Request) {
     context: { organizationId: auth.organizationId },
     userId,
   });
-
-  // MCP core methods
-  if (body.method === 'initialize') {
-    return NextResponse.json(
-      jsonRpcResult(body.id, {
-        protocolVersion: '2025-11-25',
-        serverInfo: { name: 'crmia-next-mcp', version: '0.1.0' },
-        capabilities: { tools: { listChanged: false } },
-      })
-    );
-  }
-
-  if (body.method === 'notifications/initialized') {
-    // Notification: no response required by JSON-RPC, but returning 204 keeps proxies happy.
-    return new NextResponse(null, { status: 204 });
-  }
 
   if (body.method === 'tools/list') {
     const tools = registry.tools.map((t) => ({
