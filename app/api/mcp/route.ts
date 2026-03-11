@@ -72,7 +72,14 @@ async function resolveApiKeyOwnerUserId(opts: { apiKeyId: string; organizationId
   return data.created_by as string | null;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  // MCP Streamable HTTP: GET is used for SSE server-initiated messages.
+  // We don't support server-initiated messages, so return 405.
+  // Browsers/humans hitting the URL directly still get a helpful JSON response.
+  const accept = request.headers.get('accept') ?? '';
+  if (accept.includes('text/event-stream')) {
+    return new NextResponse(null, { status: 405, headers: { Allow: 'POST' } });
+  }
   return NextResponse.json({
     ok: true,
     name: 'crmia-next-mcp',
