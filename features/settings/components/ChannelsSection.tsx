@@ -114,19 +114,68 @@ const WEBHOOK_FUNCTION_MAP: Record<string, string> = {
   'resend': 'messaging-webhook-resend',
 };
 
-const WEBHOOK_PROVIDER_LABEL: Record<string, string> = {
-  'z-api': 'Z-API (Configurações → Webhook)',
-  'meta-cloud': 'Meta for Developers (WhatsApp → Webhook)',
-  'meta': 'Meta for Developers (Messenger → Webhook)',
-  'resend': 'Resend (Dashboard → Webhooks)',
+interface WebhookField {
+  label: string;
+  description: string;
+  required?: boolean;
+}
+
+const WEBHOOK_CONFIGS: Record<string, {
+  title: string;
+  where: string;
+  docsUrl?: string;
+  fields: WebhookField[];
+  toggles?: string[];
+}> = {
+  'z-api': {
+    title: 'Configurar Webhooks no Z-API',
+    where: 'Acesse developer.z-api.io → Sua instância → aba "Webhooks e configurações gerais"',
+    docsUrl: 'https://developer.z-api.io/webhooks/introduction',
+    fields: [
+      { label: 'Ao receber', description: 'Mensagens que o lead manda chegam no CRM', required: true },
+      { label: 'Receber status da mensagem', description: 'Saber se foi entregue e lida (✓✓ azul)' },
+      { label: 'Ao enviar', description: 'Confirma que a mensagem enviada pelo CRM saiu' },
+      { label: 'Ao conectar', description: 'Atualiza status do canal pra "Conectado"' },
+      { label: 'Ao desconectar', description: 'Marca canal como "Desconectado" se o WhatsApp cair' },
+    ],
+    toggles: ['Ative "Notificar as enviadas por mim também" — senão mensagens pelo celular não aparecem no CRM'],
+  },
+  'meta-cloud': {
+    title: 'Configurar Webhook no Meta for Developers',
+    where: 'Acesse developers.facebook.com → Seu App → WhatsApp → Configuração → Webhook',
+    docsUrl: 'https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks/set-up',
+    fields: [
+      { label: 'Callback URL', description: 'Cole a URL abaixo no campo de webhook', required: true },
+    ],
+    toggles: ['Inscreva-se nos campos: messages, message_deliveries, message_reads'],
+  },
+  'meta': {
+    title: 'Configurar Webhook no Meta for Developers',
+    where: 'Acesse developers.facebook.com → Seu App → Messenger → Configurações → Webhooks',
+    docsUrl: 'https://developers.facebook.com/docs/messenger-platform/webhooks',
+    fields: [
+      { label: 'Callback URL', description: 'Cole a URL abaixo', required: true },
+    ],
+    toggles: ['Inscreva-se no campo: messages'],
+  },
+  'resend': {
+    title: 'Configurar Webhook no Resend',
+    where: 'Acesse resend.com → Dashboard → Webhooks → Add Webhook',
+    docsUrl: 'https://resend.com/docs/dashboard/webhooks/introduction',
+    fields: [
+      { label: 'Endpoint URL', description: 'Cole a URL abaixo', required: true },
+    ],
+    toggles: ['Selecione os eventos: email.sent, email.delivered, email.opened, email.bounced'],
+  },
 };
 
 function WebhookInfo({ channelId, provider, verifyToken }: { channelId: string; provider: string; verifyToken?: string }) {
   const { addToast } = useToast();
+  const [expanded, setExpanded] = useState(false);
   const projectRef = getSupabaseProjectRef();
   const fn = WEBHOOK_FUNCTION_MAP[provider] || 'messaging-webhook-zapi';
   const webhookUrl = `https://${projectRef}.supabase.co/functions/v1/${fn}/${channelId}`;
-  const providerLabel = WEBHOOK_PROVIDER_LABEL[provider] || provider;
+  const config = WEBHOOK_CONFIGS[provider];
 
   const copyToClipboard = async (text: string, label: string) => {
     try {
@@ -138,51 +187,118 @@ function WebhookInfo({ channelId, provider, verifyToken }: { channelId: string; 
   };
 
   return (
-    <div className="mt-3 p-3 rounded-lg bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20">
-      <h5 className="text-xs font-semibold text-blue-800 dark:text-blue-200 mb-2 flex items-center gap-1.5">
-        <ExternalLink className="w-3.5 h-3.5" />
-        Configure o Webhook no {providerLabel}
-      </h5>
+    <div className="mt-3 rounded-lg bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 overflow-hidden">
+      {/* Header — always visible */}
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full p-3 flex items-center justify-between text-left hover:bg-blue-100/50 dark:hover:bg-blue-500/5 transition-colors"
+      >
+        <h5 className="text-xs font-semibold text-blue-800 dark:text-blue-200 flex items-center gap-1.5">
+          <ExternalLink className="w-3.5 h-3.5" />
+          {config?.title || 'Configurar Webhook'}
+        </h5>
+        <ChevronDown className={cn('w-4 h-4 text-blue-500 transition-transform', expanded && 'rotate-180')} />
+      </button>
 
-      <div className="space-y-2">
-        <div>
-          <label className="text-[10px] font-medium text-blue-600 dark:text-blue-300 uppercase tracking-wider">
-            Webhook URL
-          </label>
-          <div className="flex items-center gap-1 mt-0.5">
-            <code className="flex-1 text-[11px] bg-blue-100 dark:bg-blue-900/30 px-2 py-1 rounded text-blue-900 dark:text-blue-100 break-all select-all">
-              {webhookUrl}
-            </code>
-            <button
-              onClick={() => copyToClipboard(webhookUrl, 'URL')}
-              className="shrink-0 p-1.5 hover:bg-blue-200 dark:hover:bg-blue-800/50 rounded transition-colors"
-              title="Copiar URL"
-            >
-              <Copy className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-            </button>
-          </div>
-        </div>
+      {expanded && (
+        <div className="px-3 pb-3 space-y-3">
+          {/* Where to go */}
+          {config?.where && (
+            <p className="text-[11px] text-blue-700 dark:text-blue-300 bg-blue-100/60 dark:bg-blue-900/20 rounded px-2 py-1.5">
+              {config.where}
+            </p>
+          )}
 
-        {verifyToken && (
+          {/* Webhook URL — the thing to copy */}
           <div>
-            <label className="text-[10px] font-medium text-blue-600 dark:text-blue-300 uppercase tracking-wider">
-              Verify Token
+            <label className="text-[10px] font-bold text-blue-600 dark:text-blue-300 uppercase tracking-wider">
+              URL do Webhook (cole nos campos abaixo)
             </label>
-            <div className="flex items-center gap-1 mt-0.5">
-              <code className="flex-1 text-[11px] bg-green-100 dark:bg-green-900/30 px-2 py-1 rounded text-green-900 dark:text-green-100 font-mono">
-                {verifyToken}
+            <div className="flex items-center gap-1 mt-1">
+              <code className="flex-1 text-[11px] bg-white dark:bg-black/30 border border-blue-200 dark:border-blue-500/20 px-2.5 py-2 rounded-lg text-blue-900 dark:text-blue-100 break-all select-all font-mono">
+                {webhookUrl}
               </code>
               <button
-                onClick={() => copyToClipboard(verifyToken, 'Token')}
-                className="shrink-0 p-1.5 hover:bg-blue-200 dark:hover:bg-blue-800/50 rounded transition-colors"
-                title="Copiar Token"
+                onClick={() => copyToClipboard(webhookUrl, 'URL')}
+                className="shrink-0 p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                title="Copiar URL"
               >
-                <Copy className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                <Copy className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
-        )}
-      </div>
+
+          {/* Verify Token (Meta only) */}
+          {verifyToken && (
+            <div>
+              <label className="text-[10px] font-bold text-green-600 dark:text-green-300 uppercase tracking-wider">
+                Verify Token
+              </label>
+              <div className="flex items-center gap-1 mt-1">
+                <code className="flex-1 text-[11px] bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-500/20 px-2.5 py-2 rounded-lg text-green-900 dark:text-green-100 font-mono">
+                  {verifyToken}
+                </code>
+                <button
+                  onClick={() => copyToClipboard(verifyToken, 'Token')}
+                  className="shrink-0 p-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+                  title="Copiar Token"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Fields to fill */}
+          {config?.fields && config.fields.length > 0 && (
+            <div>
+              <label className="text-[10px] font-bold text-blue-600 dark:text-blue-300 uppercase tracking-wider">
+                Campos para preencher
+              </label>
+              <div className="mt-1.5 space-y-1">
+                {config.fields.map((field) => (
+                  <div
+                    key={field.label}
+                    className="flex items-start gap-2 text-[11px] text-blue-800 dark:text-blue-200 bg-white/60 dark:bg-black/20 rounded px-2 py-1.5"
+                  >
+                    <span className="font-semibold whitespace-nowrap">
+                      {field.label}{field.required ? ' *' : ''}:
+                    </span>
+                    <span className="text-blue-600 dark:text-blue-300">{field.description}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-blue-500 dark:text-blue-400 mt-1 italic">
+                * Cole a mesma URL em todos os campos. O sistema identifica o tipo de evento automaticamente.
+              </p>
+            </div>
+          )}
+
+          {/* Toggles / extra config */}
+          {config?.toggles && config.toggles.length > 0 && (
+            <div className="bg-amber-50 dark:bg-amber-500/5 border border-amber-200 dark:border-amber-500/20 rounded-lg px-2.5 py-2 space-y-1">
+              {config.toggles.map((toggle, i) => (
+                <p key={i} className="text-[11px] text-amber-800 dark:text-amber-300 flex items-start gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  {toggle}
+                </p>
+              ))}
+            </div>
+          )}
+
+          {/* Docs link */}
+          {config?.docsUrl && (
+            <a
+              href={config.docsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-600 dark:text-blue-400 hover:underline"
+            >
+              Ver documentação completa <ExternalLink size={11} />
+            </a>
+          )}
+        </div>
+      )}
     </div>
   );
 }
