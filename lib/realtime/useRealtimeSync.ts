@@ -9,11 +9,12 @@
  *   useRealtimeSync(['deals', 'activities']);  // Multiple tables
  */
 import { useEffect, useRef } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { queryKeys, DEALS_VIEW_KEY } from '@/lib/query/queryKeys';
 import type { DealView } from '@/types';
+import type { MessagingMessage } from '@/lib/messaging';
 
 // Enable detailed Realtime logging in development or when DEBUG_REALTIME env var is set
 const DEBUG_REALTIME = process.env.NODE_ENV === 'development' || process.env.NEXT_PUBLIC_DEBUG_REALTIME === 'true';
@@ -180,16 +181,75 @@ export function useRealtimeSync(
           // Call custom callback (if provided)
           onchangeRef.current?.(payload);
 
-          // Targeted invalidation for messaging_messages:
-          // Extract conversation_id from the payload to only invalidate that conversation's
-          // message cache instead of all message queries.
+          // Targeted handling for messaging_messages:
+          // - UPDATE: patch the message status in-cache (no refetch)
+          // - INSERT/DELETE: invalidate to sync new/removed messages
           if (table === 'messaging_messages') {
             const record = (payload.new || payload.old) as Record<string, unknown>;
             const conversationId = record?.conversation_id as string | undefined;
             if (conversationId) {
-              const targetKey = queryKeys.messagingMessages.byConversation(conversationId);
-              pendingInvalidationsRef.current.add(targetKey);
-              // Also invalidate conversations (unread count, last message preview, etc.)
+              if (payload.eventType === 'UPDATE' && payload.new) {
+                const db = payload.new as Record<string, unknown>;
+                const messageId = db.id as string;
+                const patch: Partial<MessagingMessage> = {
+                  status: db.status as MessagingMessage['status'],
+                  ...(db.external_id != null && { externalId: db.external_id as string }),
+                  ...(db.sent_at != null && { sentAt: db.sent_at as string }),
+                  ...(db.delivered_at != null && { deliveredAt: db.delivered_at as string }),
+                  ...(db.read_at != null && { readAt: db.read_at as string }),
+                  ...(db.failed_at != null && { failedAt: db.failed_at as string }),
+                  ...(db.error_code != null && { errorCode: db.error_code as string }),
+                  ...(db.error_message != null && { errorMessage: db.error_message as string }),
+                };
+
+                const applyPatch = (m: MessagingMessage) =>
+                  m.id === messageId ? { ...m, ...patch } : m;
+
+                // Update flat query cache
+                const flatKey = queryKeys.messagingMessages.byConversation(conversationId);
+                queryClient.setQueryData<MessagingMessage[]>(flatKey, (old) =>
+                  old ? old.map(applyPatch) : old
+                );
+
+                // Update infinite query cache (used by MessageThread)
+                const infiniteKey = [...flatKey, 'infinite'] as const;
+                queryClient.setQueryData<InfiniteData<{ messages: MessagingMessage[]; nextCursor: string | null }>>(
+                  infiniteKey,
+                  (old) => old
+                    ? { ...old, pages: old.pages.map(p => ({ ...p, messages: p.messages.map(applyPatch) })) }
+                    : old
+                );
+                return; // No invalidation for UPDATE
+              }
+
+              // INSERT or DELETE: invalidate to sync.
+              // Skip invalidation for our own outbound INSERTs — useSendMessage.onSuccess
+              // already placed the real message in cache. Invalidating here would trigger
+              // a full refetch that races with in-flight optimistic updates and reorders them.
+              if (payload.eventType === 'INSERT') {
+                const direction = (payload.new as Record<string, unknown>)?.direction;
+                if (direction === 'outbound') {
+                  // Only refresh the conversations list (last_message preview)
+                  pendingInvalidationsRef.current.add(queryKeys.messagingConversations.all);
+                  pendingInvalidationsRef.current.add(queryKeys.messagingConversations.unreadCount());
+                  if (!flushScheduledRef.current) {
+                    flushScheduledRef.current = true;
+                    queueMicrotask(() => {
+                      flushScheduledRef.current = false;
+                      const keysToFlush = Array.from(pendingInvalidationsRef.current);
+                      pendingInvalidationsRef.current.clear();
+                      keysToFlush.forEach((queryKey) => {
+                        queryClient.invalidateQueries({ queryKey, exact: false, refetchType: 'all' });
+                      });
+                    });
+                  }
+                  return;
+                }
+              }
+              const flatKey = queryKeys.messagingMessages.byConversation(conversationId);
+              const infiniteKey = [...flatKey, 'infinite'] as const;
+              pendingInvalidationsRef.current.add(flatKey);
+              pendingInvalidationsRef.current.add(infiniteKey);
               pendingInvalidationsRef.current.add(queryKeys.messagingConversations.all);
               pendingInvalidationsRef.current.add(queryKeys.messagingConversations.unreadCount());
 
@@ -204,7 +264,7 @@ export function useRealtimeSync(
                   });
                 });
               }
-              return; // Skip generic invalidation for this table
+              return;
             }
             // If no conversation_id, fall through to generic invalidation
           }

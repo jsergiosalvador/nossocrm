@@ -197,14 +197,17 @@ export function useSendMessage() {
       return response.json();
     },
     onMutate: async (input) => {
-      // Optimistic update: add message to cache immediately
       const queryKey = queryKeys.messagingMessages.byConversation(input.conversationId);
+      const infiniteQueryKey = [...queryKeys.messagingMessages.byConversation(input.conversationId), 'infinite'] as const;
 
-      await queryClient.cancelQueries({ queryKey });
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey }),
+        queryClient.cancelQueries({ queryKey: infiniteQueryKey }),
+      ]);
 
       const previousMessages = queryClient.getQueryData<MessagingMessage[]>(queryKey);
+      const previousInfiniteData = queryClient.getQueryData<InfiniteData<{ messages: MessagingMessage[]; nextCursor: string | null }>>(infiniteQueryKey);
 
-      // Create optimistic message
       const optimisticMessage: MessagingMessage = {
         id: `temp-${Date.now()}`,
         conversationId: input.conversationId,
@@ -217,26 +220,59 @@ export function useSendMessage() {
         createdAt: new Date().toISOString(),
       };
 
-      queryClient.setQueryData<MessagingMessage[]>(queryKey, (old) => {
-        return [...(old || []), optimisticMessage];
-      });
+      // Update flat query (used by useMessagingMessages)
+      queryClient.setQueryData<MessagingMessage[]>(queryKey, (old) => [
+        ...(old || []),
+        optimisticMessage,
+      ]);
 
-      return { previousMessages, queryKey, optimisticMessage };
+      // Update infinite query (used by MessageThread via useMessagesInfinite)
+      // pages[0] holds the MOST RECENT messages (DB fetches desc, then reverses).
+      // New outbound messages must go to pages[0], not pages[pages.length - 1] (oldest page).
+      queryClient.setQueryData<InfiniteData<{ messages: MessagingMessage[]; nextCursor: string | null }>>(
+        infiniteQueryKey,
+        (old) => {
+          if (!old) return old;
+          const pages = [...old.pages];
+          const first = pages[0];
+          pages[0] = { ...first, messages: [...first.messages, optimisticMessage] };
+          return { ...old, pages };
+        }
+      );
+
+      return { previousMessages, previousInfiniteData, queryKey, infiniteQueryKey, optimisticMessage };
     },
-    onError: (error, input, context) => {
-      // Rollback on error
+    onError: (_error, _input, context) => {
       if (context?.previousMessages !== undefined) {
         queryClient.setQueryData(context.queryKey, context.previousMessages);
       }
+      if (context?.previousInfiniteData !== undefined) {
+        queryClient.setQueryData(context.infiniteQueryKey, context.previousInfiniteData);
+      }
     },
     onSuccess: (message, _input, context) => {
-      // Replace optimistic message with real one
-      queryClient.setQueryData<MessagingMessage[]>(context?.queryKey, (old) => {
-        if (!old) return [message];
-        return old.map((m) =>
-          m.id === context?.optimisticMessage.id ? message : m
-        );
-      });
+      const replaceOptimistic = (m: MessagingMessage) =>
+        m.id === context?.optimisticMessage.id ? message : m;
+
+      // Replace in flat query
+      queryClient.setQueryData<MessagingMessage[]>(context?.queryKey, (old) =>
+        old ? old.map(replaceOptimistic) : [message]
+      );
+
+      // Replace in infinite query
+      queryClient.setQueryData<InfiniteData<{ messages: MessagingMessage[]; nextCursor: string | null }>>(
+        context?.infiniteQueryKey,
+        (old) => {
+          if (!old) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page) => ({
+              ...page,
+              messages: page.messages.map(replaceOptimistic),
+            })),
+          };
+        }
+      );
     },
     onSettled: (_, _err, input) => {
       // Invalidate conversation to update last_message (runs on both success and error)
