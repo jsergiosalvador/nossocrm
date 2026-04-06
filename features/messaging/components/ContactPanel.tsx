@@ -16,6 +16,8 @@ import {
   LinkIcon,
   MessageSquare,
   GitMerge,
+  BotOff,
+  Bot,
 } from 'lucide-react';
 import { formatDistanceToNow, format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -25,6 +27,7 @@ import type { ConversationView } from '@/lib/messaging/types';
 import { ChannelIndicator } from './ChannelIndicator';
 import { WindowExpiryBadge } from './WindowExpiryBadge';
 import { ContactPanelSkeleton } from './skeletons/ContactPanelSkeleton';
+import { useUpdateContact } from '@/lib/query/hooks/useContactsQuery';
 
 interface ContactPanelProps {
   conversation: ConversationView | null | undefined;
@@ -122,6 +125,7 @@ export const ContactPanel = memo(function ContactPanel({
     contactName,
     contactEmail,
     contactPhone,
+    contactAiPaused,
     channelType,
     channelName,
     windowExpiresAt,
@@ -132,6 +136,8 @@ export const ContactPanel = memo(function ContactPanel({
     status,
     priority,
   } = conversation;
+
+  const updateContact = useUpdateContact();
 
   const displayName = contactName || externalContactName || 'Contato desconhecido';
   const hasLinkedContact = !!contactId;
@@ -263,6 +269,50 @@ export const ContactPanel = memo(function ContactPanel({
           )}
           {assignedUserName && (
             <InfoRow icon={User} label="Atribuído para" value={assignedUserName} />
+          )}
+          {contactId && (
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-start gap-3">
+                {contactAiPaused ? (
+                  <BotOff className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
+                ) : (
+                  <Bot className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
+                )}
+                <div className="min-w-0">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">IA</p>
+                  <p className="text-sm text-slate-900 dark:text-white">
+                    {contactAiPaused ? 'Pausada' : 'Ativa'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={updateContact.isPending}
+                onClick={() =>
+                  updateContact.mutate({
+                    id: contactId,
+                    updates: { aiPaused: !contactAiPaused },
+                  })
+                }
+                className={cn(
+                  'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent',
+                  'transition-colors duration-200 ease-in-out focus:outline-none',
+                  contactAiPaused
+                    ? 'bg-amber-500'
+                    : 'bg-slate-200 dark:bg-slate-700',
+                  updateContact.isPending && 'opacity-50 cursor-not-allowed'
+                )}
+                title={contactAiPaused ? 'Reativar IA para este contato' : 'Pausar IA para este contato'}
+              >
+                <span
+                  className={cn(
+                    'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0',
+                    'transition duration-200 ease-in-out',
+                    contactAiPaused ? 'translate-x-4' : 'translate-x-0'
+                  )}
+                />
+              </button>
+            </div>
           )}
         </Section>
 

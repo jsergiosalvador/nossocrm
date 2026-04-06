@@ -79,6 +79,8 @@ export interface DbContact {
   updated_at: string;
   /** ID do dono/responsável. */
   owner_id: string | null;
+  /** Quando true, o agente de IA não responde a este contato. */
+  ai_paused: boolean;
 }
 
 /**
@@ -131,6 +133,7 @@ const transformContact = (db: DbContact): Contact => ({
   totalValue: db.total_value || 0,
   createdAt: db.created_at,
   updatedAt: db.updated_at,
+  aiPaused: db.ai_paused ?? false,
 });
 
 /**
@@ -177,6 +180,7 @@ const transformContactToDb = (contact: Partial<Contact>): Partial<DbContact> => 
   if (contact.lastInteraction !== undefined) db.last_interaction = contact.lastInteraction || null;
   if (contact.lastPurchaseDate !== undefined) db.last_purchase_date = contact.lastPurchaseDate || null;
   if (contact.totalValue !== undefined) db.total_value = contact.totalValue;
+  if (contact.aiPaused !== undefined) db.ai_paused = contact.aiPaused;
 
   return db;
 };

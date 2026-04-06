@@ -211,11 +211,11 @@ export async function processIncomingMessage(
   // 1. Buscar deal associado à conversa para pegar o stage + assignment
   const { data: conversation } = await supabase
     .from('messaging_conversations')
-    .select('metadata, assigned_user_id, assigned_at')
+    .select('metadata, assigned_user_id, assigned_at, contact_id')
     .eq('id', conversationId)
     .single();
 
-  // 0b. Check if AI is paused for this conversation
+  // 0b. Check if AI is paused for this conversation (metadata) or contact
   const conversationMetadata = (conversation?.metadata || {}) as Record<string, unknown>;
   if (conversationMetadata.ai_paused === true) {
     console.log('[AIAgent] AI paused for this conversation:', conversationId);
@@ -226,6 +226,25 @@ export async function processIncomingMessage(
         reason: 'AI pausado para esta conversa',
       },
     };
+  }
+
+  // 0c. Check if AI is paused at the contact level (cross-channel)
+  if (conversation?.contact_id) {
+    const { data: contact } = await supabase
+      .from('contacts')
+      .select('ai_paused')
+      .eq('id', conversation.contact_id)
+      .maybeSingle();
+    if (contact?.ai_paused) {
+      console.log('[AIAgent] AI paused for contact:', conversation.contact_id);
+      return {
+        success: true,
+        decision: {
+          action: 'skipped',
+          reason: 'AI pausado para este contato',
+        },
+      };
+    }
   }
 
   const dealId = conversationMetadata.deal_id as string | undefined;

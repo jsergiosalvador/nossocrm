@@ -171,6 +171,9 @@ export interface Contact {
 
   // @deprecated - Use clientCompanyId instead
   companyId?: string;
+
+  /** Quando true, o agente de IA não responde a este contato em nenhum canal. */
+  aiPaused?: boolean;
 }
 
 // ITEM 3: Produtos e Serviços

@@ -193,6 +193,7 @@ export interface ConversationView extends MessagingConversation {
   contactName?: string;
   contactEmail?: string;
   contactPhone?: string;
+  contactAiPaused?: boolean;
   /** Assigned user info */
   assignedUserName?: string;
   assignedUserAvatar?: string;
