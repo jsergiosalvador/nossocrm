@@ -94,18 +94,24 @@ export async function POST(request: NextRequest) {
 
   const supabase = createClient(supabaseUrl, supabaseKey);
 
-  // Return immediately and process AI in the background via waitUntil
-  waitUntil(
-    processIncomingMessage({
-      supabase,
-      conversationId,
-      organizationId,
-      incomingMessage: messageText,
-      messageId,
-    }).catch((error) => {
-      console.error('[AI Process] Background processing error:', error);
-    })
-  );
+  // In dev, waitUntil drops the callback — await directly for testability.
+  // In production, Vercel executes waitUntil after the response is sent.
+  const isDev = process.env.NODE_ENV === 'development';
+  const task = processIncomingMessage({
+    supabase,
+    conversationId,
+    organizationId,
+    incomingMessage: messageText,
+    messageId,
+  }).catch((error) => {
+    console.error('[AI Process] Background processing error:', error);
+  });
+
+  if (isDev) {
+    await task;
+  } else {
+    waitUntil(task);
+  }
 
   return Response.json({ received: true }, { status: 200 });
 }
