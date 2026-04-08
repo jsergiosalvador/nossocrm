@@ -426,41 +426,38 @@ export async function processIncomingMessage(
 
   // 6. Verificar limite de mensagens
   if (context.stats.ai_messages_count >= config.settings.max_messages_per_conversation) {
-    return {
-      success: true,
-      decision: await handleHandoff(supabase, conversationId, organizationId, context, 'Limite de mensagens atingido', incomingMessage),
-    };
+    const handoffDecision = await handleHandoff(supabase, conversationId, organizationId, context, 'Limite de mensagens atingido', incomingMessage);
+    await logAIInteraction({ supabase, organizationId, conversationId, messageId, stageId: deal.stage_id, context, decision: handoffDecision });
+    return { success: true, decision: handoffDecision };
   }
 
   // 7. Verificar handoff keywords
   const handoffKeyword = checkHandoffKeywords(incomingMessage, config.settings.handoff_keywords);
   if (handoffKeyword) {
-    return {
-      success: true,
-      decision: await handleHandoff(
-        supabase,
-        conversationId,
-        organizationId,
-        context,
-        `Keyword de handoff detectada: "${handoffKeyword}"`,
-        incomingMessage,
-      ),
-    };
+    const handoffDecision = await handleHandoff(
+      supabase,
+      conversationId,
+      organizationId,
+      context,
+      `Keyword de handoff detectada: "${handoffKeyword}"`,
+      incomingMessage,
+    );
+    await logAIInteraction({ supabase, organizationId, conversationId, messageId, stageId: deal.stage_id, context, decision: handoffDecision });
+    return { success: true, decision: handoffDecision };
   }
 
   // 7.5. Verificar notify_team — handoff automático por configuração de estágio
   if (config.notify_team) {
-    return {
-      success: true,
-      decision: await handleHandoff(
-        supabase,
-        conversationId,
-        organizationId,
-        context,
-        'Estágio configurado para notificar equipe (notify_team)',
-        incomingMessage,
-      ),
-    };
+    const handoffDecision = await handleHandoff(
+      supabase,
+      conversationId,
+      organizationId,
+      context,
+      'Estágio configurado para notificar equipe (notify_team)',
+      incomingMessage,
+    );
+    await logAIInteraction({ supabase, organizationId, conversationId, messageId, stageId: deal.stage_id, context, decision: handoffDecision });
+    return { success: true, decision: handoffDecision };
   }
 
   // 8. Verificar horário comercial
