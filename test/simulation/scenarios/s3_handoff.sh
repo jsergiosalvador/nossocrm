@@ -25,11 +25,59 @@ S3_OUTBOUND_BEFORE=$(supabase_count "messaging_messages" \
   "conversation_id=eq.${S1_CONV_ID}&direction=eq.outbound")
 
 echo "  Dany pede atendente humano..."
-zapi_send "55${THALES_PHONE:3}" "Quero falar com um atendente humano por favor."
+S3_ZAPI1=$(zapi_send "55${THALES_PHONE:3}" "Quero falar com um atendente humano por favor.")
+S3_MSG_ID1=$(echo "$S3_ZAPI1" | jq -r '.messageId // empty')
+S3_MSG_ID1="${S3_MSG_ID1:-S3_INBOUND1_${TEST_RUN_ID}}"
+
+sleep "$WEBHOOK_WAIT"
+
+evolution_webhook_send "$(cat <<EOF
+{
+  "event": "MESSAGES_UPSERT",
+  "instance": "nossocrm-dev",
+  "data": {
+    "key": {
+      "remoteJid": "$DANY_PHONE_JID",
+      "id": "$S3_MSG_ID1",
+      "fromMe": false
+    },
+    "pushName": "Dany Couto",
+    "messageType": "conversation",
+    "message": { "conversation": "Quero falar com um atendente humano por favor." },
+    "messageTimestamp": $(date +%s)
+  }
+}
+EOF
+)" > /dev/null
+
 sleep "$AI_WAIT"
 
 echo "  Dany envia segunda mensagem (deve ficar sem resposta da AI)..."
-zapi_send "55${THALES_PHONE:3}" "Alguém pode me atender? Estou aguardando."
+S3_ZAPI2=$(zapi_send "55${THALES_PHONE:3}" "Alguém pode me atender? Estou aguardando.")
+S3_MSG_ID2=$(echo "$S3_ZAPI2" | jq -r '.messageId // empty')
+S3_MSG_ID2="${S3_MSG_ID2:-S3_INBOUND2_${TEST_RUN_ID}}"
+
+sleep "$WEBHOOK_WAIT"
+
+evolution_webhook_send "$(cat <<EOF
+{
+  "event": "MESSAGES_UPSERT",
+  "instance": "nossocrm-dev",
+  "data": {
+    "key": {
+      "remoteJid": "$DANY_PHONE_JID",
+      "id": "$S3_MSG_ID2",
+      "fromMe": false
+    },
+    "pushName": "Dany Couto",
+    "messageType": "conversation",
+    "message": { "conversation": "Alguém pode me atender? Estou aguardando." },
+    "messageTimestamp": $(date +%s)
+  }
+}
+EOF
+)" > /dev/null
+
 sleep "$AI_WAIT"
 
 # --- Handoff metadata ---

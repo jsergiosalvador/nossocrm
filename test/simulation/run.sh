@@ -67,4 +67,12 @@ should_run s3 && run_scenario "S3 — Handoff para Humano" "s3_handoff.sh"
 should_run s4 && run_scenario "S4 — Outbound do Celular" "s4_outbound_phone.sh"
 should_run s5 && run_scenario "S5 — Status Update" "s5_status_update.sh"
 
+# S6 roda isolado com cleanup próprio (conversa outbound-initiated)
+if should_run s6; then
+  echo ""
+  echo "  [setup S6] Limpando dados de teste anteriores da Dany..."
+  cleanup_dany
+  run_scenario "S6 — Outbound Ativo (prospecção)" "s6_outbound_active.sh"
+fi
+
 report_summary

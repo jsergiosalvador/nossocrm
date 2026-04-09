@@ -977,7 +977,7 @@ async function logAIInteraction(params: {
       conversation_id: conversationId,
       message_id: messageId,
       stage_id: stageId,
-      context_snapshot: context,
+      context_snapshot: context ?? {},
       ai_response: decision.response || '',
       tokens_used: decision.tokens_used,
       model_used: decision.model_used,

@@ -52,6 +52,26 @@ EOF
 )"
 }
 
+# Send a real message FROM Thales (Evolution) TO a phone number.
+# Returns the WhatsApp message ID from the API response.
+# Usage: evolution_send "351911910326" "Hello"
+evolution_send() {
+  local phone=$1 message=$2
+  local creds secret serverUrl instanceName
+  creds=$(supabase_query "messaging_channels" "id=eq.${EVOLUTION_CHANNEL_ID}&select=credentials")
+  secret=$(echo "$creds" | jq -r ".[0].credentials.apiKey")
+  serverUrl=$(echo "$creds" | jq -r ".[0].credentials.serverUrl")
+  instanceName=$(echo "$creds" | jq -r ".[0].credentials.instanceName")
+
+  local result
+  result=$(curl -sf -X POST \
+    "${serverUrl}/message/sendText/${instanceName}" \
+    -H "Content-Type: application/json" \
+    -H "apikey: ${secret}" \
+    -d "{\"number\": \"${phone}\", \"text\": $(echo "$message" | jq -Rs .)}")
+  echo "$result"
+}
+
 # Simulate outbound message from Thales' phone (fromMe: true)
 evolution_fromme_send() {
   local msg_id="FROMME_${TEST_RUN_ID}" text=$1
