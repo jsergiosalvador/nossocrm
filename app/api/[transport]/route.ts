@@ -6,6 +6,7 @@ import { registerMessagingTools } from '@/lib/mcp/tools/messaging';
 import { registerAITools } from '@/lib/mcp/tools/ai';
 import { registerAdminTools } from '@/lib/mcp/tools/admin';
 import { registerContactsAdvancedTools } from '@/lib/mcp/tools/contacts-advanced';
+import { registerSimulationTools } from '@/lib/mcp/tools/simulation';
 import { mcpContextStorage } from '@/lib/mcp/context';
 
 export const runtime = 'nodejs';
@@ -49,6 +50,7 @@ const mcpHandler = createMcpHandler(
     registerAITools(server);
     registerAdminTools(server);
     registerContactsAdvancedTools(server);
+    registerSimulationTools(server);
   },
   undefined,
   {

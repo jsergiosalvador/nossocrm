@@ -15,7 +15,7 @@
  */
 
 import { useState } from 'react';
-import { Bot, Sparkles, AlertCircle, Timer } from 'lucide-react';
+import { Bot, Brain, Sparkles, AlertCircle, Timer } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AIConfigModeSelector, type AIConfigMode } from './AIConfigModeSelector';
 import { AIOnboarding } from './AIOnboarding';
@@ -142,6 +142,9 @@ export function AIAgentConfigSection() {
 
       {/* AI Takeover */}
       <AITakeoverSection config={config} onUpdate={updateConfig.mutateAsync} />
+
+      {/* HITL Stage Advancement */}
+      <HITLConfigSection />
     </div>
   );
 }
@@ -242,6 +245,72 @@ function AITakeoverSection({
 }
 
 // =============================================================================
+// HITL Stage Advancement Section
+// =============================================================================
+
+function HITLConfigSection() {
+  const { data: aiConfig, isLoading } = useAIConfigQuery();
+  const updateMutation = useUpdateAIConfigMutation();
+
+  const isAutonomous = (aiConfig?.ai_hitl_threshold ?? 0.85) <= 0.70;
+
+  const handleToggle = async () => {
+    const newThreshold = isAutonomous ? 0.85 : 0.70;
+    try {
+      await updateMutation.mutateAsync({ ai_hitl_threshold: newThreshold });
+    } catch (e) {
+      console.error('[HITLConfig] Toggle failed:', e);
+    }
+  };
+
+  if (isLoading) return null;
+
+  return (
+    <div className="bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-500/20 rounded-lg p-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-medium text-amber-900 dark:text-amber-100 flex items-center gap-2">
+            <Brain size={18} className="text-amber-600" />
+            Avanço de Estágio por IA
+          </h3>
+          <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
+            {isAutonomous ? (
+              <span><strong>Modo Autônomo:</strong> Leads avançam automaticamente quando a IA tem ≥70% de confiança.</span>
+            ) : (
+              <span><strong>Modo Supervisionado:</strong> Você aprova avanços quando a IA tem 70-85% de confiança.</span>
+            )}
+          </p>
+        </div>
+        <div className="flex flex-col items-end gap-1">
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              checked={isAutonomous}
+              onChange={handleToggle}
+              disabled={updateMutation.isPending}
+              className="sr-only peer"
+              aria-label="Alternar modo autônomo"
+            />
+            <div className="w-11 h-6 bg-amber-500 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 dark:peer-focus:ring-amber-800 rounded-full peer dark:bg-amber-600 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-green-500 dark:peer-checked:bg-green-600" />
+          </label>
+          <span className="text-xs text-amber-600 dark:text-amber-400">
+            {isAutonomous ? 'Autônomo' : 'Supervisionado'}
+          </span>
+        </div>
+      </div>
+      {!isAutonomous && (
+        <div className="mt-2 pt-2 border-t border-amber-200 dark:border-amber-500/20">
+          <p className="text-xs text-amber-700 dark:text-amber-300">
+            💡 No modo supervisionado, você verá notificações no <strong>Inbox</strong> quando a IA sugerir avanços.
+            Avanços com &gt;85% de confiança ainda são automáticos.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// =============================================================================
 // Header
 // =============================================================================
 
@@ -253,10 +322,10 @@ function Header() {
       </div>
       <div>
         <h2 className="text-lg font-bold text-slate-900 dark:text-white font-display">
-          AI Agent de Vendas
+          Agente de IA
         </h2>
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          Configure como o agente responde automaticamente aos leads.
+          Configure como o agente responde automaticamente às conversas.
         </p>
       </div>
     </div>

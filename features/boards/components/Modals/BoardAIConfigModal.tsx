@@ -1,8 +1,9 @@
-import React, { useId } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { StageAIConfig } from '@/features/settings/components/StageAIConfig';
 import { Board } from '@/types';
 import { Sparkles } from 'lucide-react';
+import { useBoards, useUpdateBoard } from '@/lib/query/hooks/useBoardsQuery';
 
 interface BoardAIConfigModalProps {
   isOpen: boolean;
@@ -22,13 +23,29 @@ export const BoardAIConfigModal: React.FC<BoardAIConfigModalProps> = ({
   board,
 }) => {
   const headingId = useId();
+  const updateBoard = useUpdateBoard();
+  const { data: boards } = useBoards();
+  const liveBoard = boards?.find(b => b.id === board.id) ?? board;
+  const [goalStageId, setGoalStageId] = useState<string>(liveBoard.agentGoalStageId ?? '');
+
+  useEffect(() => {
+    setGoalStageId(liveBoard.agentGoalStageId ?? '');
+  }, [liveBoard.agentGoalStageId]);
 
   // Convert board stages to format expected by StageAIConfig
-  const stages = board.stages.map((stage, index) => ({
+  const stages = liveBoard.stages.map((stage, index) => ({
     id: stage.id,
     name: stage.label,
     order: index,
   }));
+
+  function handleGoalStageChange(value: string) {
+    setGoalStageId(value);
+    updateBoard.mutate({
+      id: board.id,
+      updates: { agentGoalStageId: value || null },
+    });
+  }
 
   return (
     <Modal
@@ -56,8 +73,34 @@ export const BoardAIConfigModal: React.FC<BoardAIConfigModalProps> = ({
           </div>
         </div>
 
+        {/* Agent Scope */}
+        <div className="space-y-2">
+          <label
+            htmlFor="agent-goal-stage"
+            className="block text-sm font-medium text-slate-700 dark:text-slate-300"
+          >
+            O agente age autonomamente até:
+          </label>
+          <select
+            id="agent-goal-stage"
+            value={goalStageId}
+            onChange={e => handleGoalStageChange(e.target.value)}
+            className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+          >
+            <option value="">Sem limite (age em todos os estágios com AI habilitado)</option>
+            {liveBoard.stages.map(stage => (
+              <option key={stage.id} value={stage.id}>
+                {stage.label}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            A partir do estágio seguinte, o agente para de responder automaticamente.
+          </p>
+        </div>
+
         {/* Stage AI Config */}
-        <StageAIConfig boardId={board.id} stages={stages} />
+        <StageAIConfig boardId={board.id} stages={stages} goalStageId={goalStageId || undefined} />
       </div>
     </Modal>
   );

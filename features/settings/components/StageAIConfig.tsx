@@ -10,9 +10,11 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Bot, ChevronDown, ChevronRight, Sparkles, Wand2, Loader2, Check, AlertCircle } from 'lucide-react';
+import { Ban, Bot, ChevronDown, ChevronRight, Sparkles, Wand2, Loader2, Check, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import {
   useStageAIConfigsQuery,
@@ -38,6 +40,7 @@ interface Stage {
 interface StageAIConfigProps {
   boardId: string;
   stages: Stage[];
+  goalStageId?: string;
 }
 
 // =============================================================================
@@ -58,7 +61,8 @@ interface GeneratedPreview {
   };
 }
 
-export function StageAIConfig({ boardId, stages }: StageAIConfigProps) {
+export function StageAIConfig({ boardId, stages, goalStageId }: StageAIConfigProps) {
+  const goalStageOrder = goalStageId ? (stages.find((s) => s.id === goalStageId)?.order ?? null) : null;
   const [expandedStage, setExpandedStage] = useState<string | null>(null);
   const [showGenerateDialog, setShowGenerateDialog] = useState(false);
   const [businessDescription, setBusinessDescription] = useState('');
@@ -95,6 +99,7 @@ export function StageAIConfig({ boardId, stages }: StageAIConfigProps) {
     system_prompt: string;
     stage_goal?: string;
     advancement_criteria?: string[];
+    notify_team?: boolean;
   }) => {
     const config = configMap.get(stageId);
     upsertMutation.mutate({
@@ -297,12 +302,15 @@ export function StageAIConfig({ boardId, stages }: StageAIConfigProps) {
             const isExpanded = expandedStage === stage.id;
             const preview = generatedPreview[stage.id];
 
+            const isOutOfScope = goalStageOrder !== null && stage.order > goalStageOrder;
+
             return (
               <StageConfigRow
                 key={stage.id}
                 stage={stage}
                 config={config}
                 isExpanded={isExpanded}
+                isOutOfScope={isOutOfScope}
                 onToggle={() => handleToggle(stage.id)}
                 onExpand={() => setExpandedStage(isExpanded ? null : stage.id)}
                 onSave={(data) => handleSaveConfig(stage.id, data)}
@@ -437,11 +445,13 @@ interface StageConfigRowProps {
     system_prompt: string;
     stage_goal: string | null;
     advancement_criteria: string[];
+    notify_team?: boolean;
   };
   isExpanded: boolean;
+  isOutOfScope?: boolean;
   onToggle: () => void;
   onExpand: () => void;
-  onSave: (data: { system_prompt: string; stage_goal?: string; advancement_criteria?: string[] }) => void;
+  onSave: (data: { system_prompt: string; stage_goal?: string; advancement_criteria?: string[]; notify_team?: boolean }) => void;
   isSaving: boolean;
   generatedPreview?: {
     system_prompt: string;
@@ -454,6 +464,7 @@ function StageConfigRow({
   stage,
   config,
   isExpanded,
+  isOutOfScope = false,
   onToggle,
   onExpand,
   onSave,
@@ -463,6 +474,7 @@ function StageConfigRow({
   const [prompt, setPrompt] = useState(config?.system_prompt || '');
   const [goal, setGoal] = useState(config?.stage_goal || '');
   const [criteria, setCriteria] = useState(config?.advancement_criteria?.join('\n') || '');
+  const [notifyTeam, setNotifyTeam] = useState<boolean>(config?.notify_team ?? false);
 
   // Apply generated preview when it arrives
   useEffect(() => {
@@ -476,7 +488,8 @@ function StageConfigRow({
   const hasChanges =
     prompt !== (config?.system_prompt || '') ||
     goal !== (config?.stage_goal || '') ||
-    criteria !== (config?.advancement_criteria?.join('\n') || '');
+    criteria !== (config?.advancement_criteria?.join('\n') || '') ||
+    notifyTeam !== (config?.notify_team ?? false);
 
   // Reset form when expanding - uses smart templates
   const handleExpand = () => {
@@ -500,6 +513,7 @@ function StageConfigRow({
       system_prompt: prompt,
       stage_goal: goal || undefined,
       advancement_criteria: criteria.split('\n').filter(Boolean),
+      notify_team: notifyTeam,
     });
   };
 
@@ -507,8 +521,13 @@ function StageConfigRow({
     <div
       className={cn(
         'border rounded-lg transition-colors',
-        isExpanded ? 'border-primary-500/50 bg-primary-500/5' : 'border-slate-200 dark:border-slate-700',
-        config?.enabled && 'border-l-4 border-l-green-500'
+        isOutOfScope
+          ? 'border-slate-200 dark:border-slate-700 opacity-60'
+          : isExpanded
+            ? 'border-primary-500/50 bg-primary-500/5'
+            : 'border-slate-200 dark:border-slate-700',
+        !isOutOfScope && config?.enabled && 'border-l-4 border-l-green-500',
+        isOutOfScope && config?.enabled && 'border-l-4 border-l-slate-300 dark:border-l-slate-600',
       )}
     >
       {/* Header */}
@@ -531,12 +550,17 @@ function StageConfigRow({
                   Preview
                 </Badge>
               )}
-              {config?.enabled && (
+              {isOutOfScope ? (
+                <Badge className="text-xs bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                  <Ban className="h-3 w-3 mr-1" />
+                  Fora do escopo
+                </Badge>
+              ) : config?.enabled ? (
                 <Badge className="text-xs bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
                   <Sparkles className="h-3 w-3 mr-1" />
                   AI Ativo
                 </Badge>
-              )}
+              ) : null}
             </div>
             {config?.stage_goal && (
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
@@ -550,16 +574,23 @@ function StageConfigRow({
           {/* Simple toggle button */}
           <button
             type="button"
-            onClick={onToggle}
+            onClick={isOutOfScope ? undefined : onToggle}
+            disabled={isOutOfScope}
+            title={isOutOfScope ? 'O agente não age neste estágio (além do limite configurado)' : undefined}
             className={cn(
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              config?.enabled ? 'bg-primary-500' : 'bg-slate-200 dark:bg-slate-700'
+              'relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              isOutOfScope
+                ? 'cursor-not-allowed opacity-50 bg-slate-200 dark:bg-slate-700'
+                : cn(
+                    'cursor-pointer',
+                    config?.enabled ? 'bg-primary-500' : 'bg-slate-200 dark:bg-slate-700'
+                  )
             )}
           >
             <span
               className={cn(
                 'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                config?.enabled ? 'translate-x-5' : 'translate-x-0'
+                !isOutOfScope && config?.enabled ? 'translate-x-5' : 'translate-x-0'
               )}
             />
           </button>
@@ -641,6 +672,21 @@ function StageConfigRow({
               </p>
             </div>
 
+            {/* Notify Team Toggle */}
+            <div className="flex items-center justify-between py-3 border-t border-slate-200 dark:border-slate-700">
+              <div className="space-y-0.5">
+                <Label htmlFor={`notify-team-${stage.id}`}>Notificar time (Handoff)</Label>
+                <p className="text-xs text-muted-foreground">
+                  Quando ativo, o agente não responde e notifica o time por Telegram.
+                </p>
+              </div>
+              <Switch
+                id={`notify-team-${stage.id}`}
+                checked={notifyTeam}
+                onCheckedChange={setNotifyTeam}
+              />
+            </div>
+
             {/* Save Button */}
             <div className="flex justify-end gap-2 pt-2">
               <Button
@@ -651,6 +697,7 @@ function StageConfigRow({
                   setPrompt(config?.system_prompt || template.prompt);
                   setGoal(config?.stage_goal || template.goal);
                   setCriteria(config?.advancement_criteria?.join('\n') || template.advancementCriteria.join('\n'));
+                  setNotifyTeam(config?.notify_team ?? false);
                 }}
                 disabled={!hasChanges}
               >

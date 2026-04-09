@@ -22,6 +22,8 @@ const UpdateOrgAISettingsSchema = z
     aiGoogleKey: z.string().optional(),
     aiOpenaiKey: z.string().optional(),
     aiAnthropicKey: z.string().optional(),
+    telegramBotToken: z.string().optional(),
+    telegramChatId: z.string().nullable().optional(),
   })
   .strict();
 
@@ -52,7 +54,7 @@ export async function GET() {
 
   const { data: orgSettings, error: orgError } = await supabase
     .from('organization_settings')
-    .select('ai_enabled, ai_provider, ai_model, ai_google_key, ai_openai_key, ai_anthropic_key')
+    .select('ai_enabled, ai_provider, ai_model, ai_google_key, ai_openai_key, ai_anthropic_key, telegram_bot_token, telegram_chat_id')
     .eq('organization_id', profile.organization_id)
     .maybeSingle();
 
@@ -74,6 +76,8 @@ export async function GET() {
       aiHasGoogleKey: Boolean(orgSettings?.ai_google_key),
       aiHasOpenaiKey: Boolean(orgSettings?.ai_openai_key),
       aiHasAnthropicKey: Boolean(orgSettings?.ai_anthropic_key),
+      hasTelegramBot: Boolean(orgSettings?.telegram_bot_token),
+      telegramChatId: orgSettings?.telegram_chat_id ?? null,
     });
   }
 
@@ -94,6 +98,8 @@ export async function GET() {
     aiHasGoogleKey: Boolean(orgSettings?.ai_google_key),
     aiHasOpenaiKey: Boolean(orgSettings?.ai_openai_key),
     aiHasAnthropicKey: Boolean(orgSettings?.ai_anthropic_key),
+    hasTelegramBot: Boolean(orgSettings?.telegram_bot_token),
+    telegramChatId: orgSettings?.telegram_chat_id ?? null,
   });
 }
 
@@ -165,6 +171,13 @@ export async function POST(req: Request) {
 
   const anthropicKey = normalizeKey(updates.aiAnthropicKey);
   if (anthropicKey !== undefined) dbUpdates.ai_anthropic_key = anthropicKey;
+
+  if (updates.telegramBotToken !== undefined) {
+    dbUpdates.telegram_bot_token = updates.telegramBotToken.trim() || null;
+  }
+  if (updates.telegramChatId !== undefined) {
+    dbUpdates.telegram_chat_id = updates.telegramChatId ? updates.telegramChatId.trim() || null : null;
+  }
 
   const { error: upsertError } = await supabase
     .from('organization_settings')

@@ -103,6 +103,7 @@ export function AdvancedMode({ config }: AdvancedModeProps) {
               name: s.label, // Board type uses 'label' not 'name'
               order: index,
             }))}
+            goalStageId={selectedBoard.agentGoalStageId || undefined}
           />
         </div>
       )}

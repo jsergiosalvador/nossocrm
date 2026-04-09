@@ -166,6 +166,8 @@ export interface ProcessMessageParams {
   organizationId: string;
   incomingMessage: string;
   messageId?: string;
+  /** Simulation mode: skips actual channel delivery, marks message as sent directly. */
+  simulationMode?: boolean;
 }
 
 // =============================================================================
@@ -263,7 +265,7 @@ export async function processIncomingMessage(
   // 2. Buscar deal e stage
   const { data: deal } = await supabase
     .from('deals')
-    .select('id, stage_id')
+    .select('id, stage_id, board_id')
     .eq('id', dealId)
     .single();
 
@@ -297,6 +299,46 @@ export async function processIncomingMessage(
   }
 
   const config = stageConfig as StageAIConfig;
+
+  // 3b. Verificar escopo do agente (agent_goal_stage_id)
+  // Se o deal está além do estágio limite configurado no board, o agente não age.
+  if (deal.board_id) {
+    const { data: board } = await supabase
+      .from('boards')
+      .select('agent_goal_stage_id')
+      .eq('id', deal.board_id)
+      .maybeSingle();
+
+    if (board?.agent_goal_stage_id) {
+      // Buscar a ordem do estágio atual e do estágio limite em paralelo
+      const [currentStageResult, goalStageResult] = await Promise.all([
+        supabase
+          .from('board_stages')
+          .select('"order"')
+          .eq('id', deal.stage_id)
+          .maybeSingle(),
+        supabase
+          .from('board_stages')
+          .select('"order"')
+          .eq('id', board.agent_goal_stage_id)
+          .maybeSingle(),
+      ]);
+
+      const currentOrder = currentStageResult.data?.order ?? null;
+      const goalOrder = goalStageResult.data?.order ?? null;
+
+      if (currentOrder !== null && goalOrder !== null && currentOrder > goalOrder) {
+        console.log('[AIAgent] Deal beyond agent scope (stage order %d > goal %d)', currentOrder, goalOrder);
+        return {
+          success: true,
+          decision: {
+            action: 'skipped',
+            reason: 'Fora do escopo do agente (estágio além do limite configurado)',
+          },
+        };
+      }
+    }
+  }
 
   // 4. Buscar configuração de AI e token budget em paralelo
   const [aiConfig, budgetCheck] = await Promise.all([
@@ -386,7 +428,7 @@ export async function processIncomingMessage(
   if (context.stats.ai_messages_count >= config.settings.max_messages_per_conversation) {
     return {
       success: true,
-      decision: await handleHandoff(supabase, conversationId, organizationId, context, 'Limite de mensagens atingido'),
+      decision: await handleHandoff(supabase, conversationId, organizationId, context, 'Limite de mensagens atingido', incomingMessage),
     };
   }
 
@@ -400,7 +442,23 @@ export async function processIncomingMessage(
         conversationId,
         organizationId,
         context,
-        `Keyword de handoff detectada: "${handoffKeyword}"`
+        `Keyword de handoff detectada: "${handoffKeyword}"`,
+        incomingMessage,
+      ),
+    };
+  }
+
+  // 7.5. Verificar notify_team — handoff automático por configuração de estágio
+  if (config.notify_team) {
+    return {
+      success: true,
+      decision: await handleHandoff(
+        supabase,
+        conversationId,
+        organizationId,
+        context,
+        'Estágio configurado para notificar equipe (notify_team)',
+        incomingMessage,
       ),
     };
   }
@@ -435,6 +493,7 @@ export async function processIncomingMessage(
       supabase,
       conversationId,
       response: decision.response,
+      simulationMode: params.simulationMode,
     });
 
     if (!sendResult.success) {
@@ -656,8 +715,9 @@ async function sendAIResponse(params: {
   supabase: SupabaseClient;
   conversationId: string;
   response: string;
+  simulationMode?: boolean;
 }): Promise<SendResult> {
-  const { supabase, conversationId, response } = params;
+  const { supabase, conversationId, response, simulationMode } = params;
 
   // Buscar dados da conversa e canal
   const { data: conversation } = await supabase
@@ -700,6 +760,15 @@ async function sendAIResponse(params: {
       success: false,
       error: { code: 'INSERT_FAILED', message: insertError.message },
     };
+  }
+
+  // Simulation mode: skip channel delivery, mark message as sent directly
+  if (simulationMode) {
+    await supabase
+      .from('messaging_messages')
+      .update({ status: 'sent', sent_at: new Date().toISOString() })
+      .eq('id', message.id);
+    return { success: true, messageId: message.id };
   }
 
   // Enviar via ChannelRouter
@@ -781,7 +850,8 @@ async function handleHandoff(
   conversationId: string,
   organizationId: string,
   context: LeadContext,
-  reason: string
+  reason: string,
+  lastMessage?: string,
 ): Promise<AgentDecision> {
   const now = new Date().toISOString();
 
@@ -851,6 +921,34 @@ async function handleHandoff(
     console.error('[AIAgent] Failed to broadcast handoff notification:', err);
   } finally {
     supabase.removeChannel(channel);
+  }
+
+  // Send Telegram notification (fire-and-forget)
+  if (lastMessage) {
+    const { data: orgTelegram } = await supabase
+      .from('organization_settings')
+      .select('telegram_bot_token, telegram_chat_id')
+      .eq('organization_id', organizationId)
+      .maybeSingle();
+
+    if (orgTelegram?.telegram_bot_token && orgTelegram?.telegram_chat_id) {
+      const { sendTelegramMessage, formatHandoffMessage } = await import('@/lib/notifications/telegram');
+      const message = formatHandoffMessage({
+        contactName: context.contact?.name ?? 'Lead',
+        dealTitle: context.deal?.title ?? 'Deal',
+        stageName: context.stage.name,
+        lastMessage,
+        appUrl: process.env.NEXT_PUBLIC_APP_URL,
+        dealId: context.deal?.id,
+      });
+      await sendTelegramMessage(
+        orgTelegram.telegram_bot_token,
+        orgTelegram.telegram_chat_id,
+        message
+      ).catch((err: unknown) => {
+        console.error('[AIAgent] Failed to send Telegram handoff notification:', err);
+      });
+    }
   }
 
   return {
